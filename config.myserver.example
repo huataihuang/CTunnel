@@ -1,0 +1,15 @@
+Host *
+  ServerAliveInterval 60
+  ControlMaster auto
+  ControlPath ~/.ssh/%h-%p-%r
+  ControlPersist yes
+  StrictHostKeyChecking no
+  Compression yes
+
+Host myserver
+  HostName 1.2.3.4
+  User admin
+  LocalForward 3128 127.0.0.1:3128
+  RemoteForward 127.0.0.1:24522 127.0.0.1:22
+  IdentitiesOnly yes
+  IdentityFile ~/.ssh/no_pw/id_rsa

@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+
+## CTunnel fork from "Reliable SSH Tunnel"
+## CTunnel use ~/.ssh/config.<TUNNEL> to store Tunnel config, not use ssh running command parameter
+## CTunnel written by: "Huatai Huang" <huataihuang@gmail.com>
+
+##
+## RSTunnel written by:
+##                      "Amram Bentolila" <amram@manhattanprojects.com>
+##                      "Jay Goldberg" <jaymgoldberg@gmail.com>
+##
+## Contributors:
+##                      "Chad Trabant" <chad.trabant@knmi.nl>
+
+set -x
+
+# use config ~/.ssh/config.myserver
+TUNNEL=myserver
+
+# error check function
+ErrorCheck() {
+  local ERR=$?
+  local MSG=$1
+
+  if [ "$ERR" -ne 0 ]; then
+    ErrMsg "$MSG: $ERR, exiting!"
+    TunKill
+    exit 1
+  fi
+}
+
+DebugMsg() {
+  [ "$VERBOSE" ] && echo "$1" >&2
+}
+
+ErrMsg() {
+  echo "$1" >&2
+}
+
+InfoMsg() {
+  echo "$1"
+}
+
+GetHostName() {
+  HostName=$(cat ~/.ssh/config.$TUNNEL | grep HostName | awk '{print $2}')
+  echo "$HostName"
+}
+
+GetCheckPort() {
+  CheckPortStr=$(cat ~/.ssh/config.$TUNNEL | grep LocalForward | head -1 | awk '{print $2}')
+
+  if [ -z "$CheckPortStr" ]; then
+    ErrMsg ">> [ F A I L E D ]"
+    ErrMsg ">> Do you have a LocalForward port (Check Port) defined in your SSH config?"
+    retrun 1
+  fi
+
+  # CheckPortStr maybe like "3128" or "127.0.0.1:3128" or "192.168.1.11:3128"
+  if [[ $CheckPortStr =~ ":" ]]; then
+    CheckPort=$(echo $CheckPortStr | awk -F: '{print $2}')
+  else
+    CheckPort=$CheckPortStr
+  fi
+
+  echo $CheckPort
+}
+
+SearchPID() {
+  local HOSTNAME=$(GetHostName)
+  local pids="$(pgrep -f $HOSTNAME)"
+
+  if [ "$pids" ]; then
+    echo "$pids"
+  else
+    return 1
+  fi
+}
+
+# test the connection through the tunnel
+TestConnection() {
+
+  local CHECKPORT=$(GetCheckPort)
+
+  DebugMsg ">> Testing Connection with timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT"
+  echo "test data" | timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT 2>&1 >/dev/null
+
+  if [ "$?" -ne 0 ]; then
+    ErrMsg ">> [ F A I L E D ]"
+    ErrMsg ">> Do you have a check port defined in your SSH config?"
+    InfoMsg "===> Attempting to restart tunnel"
+
+    TunKill; ErrorCheck "killing tunnel"
+
+    TunRun; ErrorCheck "starting tunnel"
+
+  else
+    InfoMsg "===> Tunnel is up and running ()"
+  fi
+}
+
+TunRun() {
+  DebugMsg ">> running command \"ssh $TUNNEL hostname\""
+  ssh $TUNNEL 'hostname'
+}
+
+TunKill() {
+  local pids="$(SearchPID)"
+
+  if [ "$pids" ]; then
+    InfoMsg ">> Killing SSH process(es) ($pids)"
+    kill -9 $pids
+    ErrorCheck "Attempted to kill process"
+  else
+    InfoMsg ">> No SSH process(es) found that match config"
+    exit 1
+  fi
+}
+
+Main() {
+
+  # check the proc listing for a active SSH tunnel running
+  DebugMsg ">> Checking for active tunnel"
+  local interpids="$(SearchPID)"
+  [ "$interpids" ] && local pids="$(echo $interpids | tr '\n' ' ')"
+
+  if [ "$pids" ]; then
+    InfoMsg  "===> Tunnel appears to be up ($pids)"
+
+    # try to make a connection through the ssh forwarding port.
+    TestConnection; ErrorCheck "testing connection"
+
+    InfoMsg "===> Tunnel is passing traffic ($pids)"
+  else
+    DebugMsg "===> Tunnel doesn't appear to be up"
+    InfoMsg ">> Attempting to start tunnel"
+
+    TunRun; ErrorCheck "running tunnel"
+    InfoMsg ">> Testing connection for $REMOTEHOSTNAME"
+
+    TestConnection
+    sleep 1 # TODO: why sleep here?
+  fi
+}
+
+NET_CONNECT_TIMEOUT=3
+Main
