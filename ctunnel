@@ -14,8 +14,7 @@
 
 set -x
 
-# use config ~/.ssh/config.myserver
-TUNNEL=myserver
+TUNNEL=aliyun
 
 # error check function
 ErrorCheck() {
@@ -47,21 +46,24 @@ GetHostName() {
 }
 
 GetCheckPort() {
-  CheckPortStr=$(cat ~/.ssh/config.$TUNNEL | grep LocalForward | head -1 | awk '{print $2}')
+  # change to check "RemoteForward" , because LocalForward may success when RemoteForward is failed 
+  # I use ctunnel to build RemoteForward Tunnel, so now check ssh <remoteserver> run check command
+  FORWARDSTR="RemoteForward"
+  CheckPortStr=$(cat ~/.ssh/config.$TUNNEL | grep $FORWARDSTR | tail -1 | awk '{print $2}')
 
   if [ -z "$CheckPortStr" ]; then
     ErrMsg ">> [ F A I L E D ]"
     ErrMsg ">> Do you have a LocalForward port (Check Port) defined in your SSH config?"
     retrun 1
-  fi
+  fi 
 
-  # CheckPortStr maybe like "3128" or "127.0.0.1:3128" or "192.168.1.11:3128"
+  # CheckPortStr maybe like "3128" or "127.0.0.1:3128" or "192.168.1.11:3128" 
   if [[ $CheckPortStr =~ ":" ]]; then
-    CheckPort=$(echo $CheckPortStr | awk -F: '{print $2}')
+    CheckPort=$(echo $CheckPortStr | awk -F: '{print $2}') 
   else
     CheckPort=$CheckPortStr
   fi
-
+  
   echo $CheckPort
 }
 
@@ -81,8 +83,11 @@ TestConnection() {
 
   local CHECKPORT=$(GetCheckPort)
 
-  DebugMsg ">> Testing Connection with timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT"
-  echo "test data" | timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT 2>&1 >/dev/null
+  #DebugMsg ">> Testing Connection with timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT"
+  #echo "test data" | timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT 2>&1 >/dev/null
+
+  DebugMsg ">> ssh SEVER Testing RemoteForward Connection with timeout $NET_CONNECT_TIMEOUT nc localhost $CHECKPORT"
+  ssh $TUNNEL "echo 'test data' | timeout $NET_CONNECT_TIMEOUT nc -v localhost $CHECKPORT 2>&1 >/dev/null"
 
   if [ "$?" -ne 0 ]; then
     ErrMsg ">> [ F A I L E D ]"
@@ -101,7 +106,7 @@ TestConnection() {
 TunRun() {
   DebugMsg ">> running command \"ssh $TUNNEL hostname\""
   ssh $TUNNEL 'hostname'
-}
+} 
 
 TunKill() {
   local pids="$(SearchPID)"
